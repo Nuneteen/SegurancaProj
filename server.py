@@ -88,7 +88,6 @@ class Client:
         logging.info("Client.close(%s)", self)
         try:
             # Shutdown will fail on a closed socket...
-            self.socket.shutdown(SHUT_RDWR)
             self.socket.close()
         except:
             logging.exception("Client.close(%s)", self)
@@ -127,7 +126,6 @@ class Server:
         """
         logging.info("Stopping Server")
         try:
-            self.ss.shutdown(SHUT_RDWR)
             self.ss.close()
         except:
             logging.exception("Server.stop")
@@ -161,7 +159,8 @@ class Server:
 
         client = self.clients[csock]
         assert client.socket == csock, "client.socket (%s) should match key (%s)" % (client.socket, csock)
-        del self.id2client[client.id]
+        if client.id in self.id2client.keys():
+            del self.id2client[client.id]
         del self.clients[client.socket]
         client.close()
         logging.info("Client deleted: %s", client)
@@ -303,7 +302,7 @@ class Server:
 
         if len(request['ciphers']) > 1 or 'NONE' not in request['ciphers']:
             logging.info("Connect continue to phase " + msg['phase'])
-            client.send(msg)
+            sender.send(msg)
             return
 
         self.id2client[request['id']] = sender
@@ -336,7 +335,7 @@ class Server:
 
         # This is a secure message.
         # TODO: Inner message is encrypted for us. Must decrypt and validate.
-        if not 'type' in request['payload'].keys():
+        if 'type' not in request['payload'].keys():
             logging.warning("Secure message without inner frame type")
             return
 
