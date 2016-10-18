@@ -167,6 +167,7 @@ class Server:
         logging.info("Client deleted: %s", client)
 
     def accept(self):
+
         """Accept a new connection.
         """
         try:
