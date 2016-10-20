@@ -30,21 +30,27 @@ def parseReqs(data):
     bfin = ""
     bfin += data
     reqs = bfin.split(TERMINATOR)
+    print reqs[:-1]
     return reqs[:-1]
 
 while CLIENT_STATE == 0:
     s.send(json.dumps(connectMsg)+TERMINATOR)
-    data = s.recv(BUFSIZE)
+    try:
+        data = s.recv(BUFSIZE)
+    except:
+        logging.error("Received invalid data from Server")
+        break
 
     try:
-        response = json.loads(parseReqs(data))
-        print response
+        data = parseReqs(data)
+        response = json.loads(data[1])
     except:
         logging.exception("Connect messages received with errors")
         break
     else:
         if len(response['ciphers']) == 1:
             SA_DATA = response['ciphers'][0]
+            print "Agreed cipherspec: " + response['ciphers'][0]
             CLIENT_STATE = 1
 
         else:
@@ -52,8 +58,8 @@ while CLIENT_STATE == 0:
             for cipher in response['ciphers']:
                 print(str(i) + ": " + cipher)
                 i += 1
-            cipher = raw_input(prompt=">>")
+            cipher = raw_input()
             connectMsg['phase'] = response['phase'] + 1
-            connectMsg['ciphers'] = response['ciphers'][cipher]
+            connectMsg['ciphers'] = response['ciphers'][int(cipher)]
 
-print data
+print "Client connected"

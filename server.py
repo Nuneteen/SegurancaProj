@@ -62,7 +62,7 @@ class Client:
         Return any complete requests in a list.
         Leave incomplete requests in the buffer.
         This is called whenever data is available from client socket."""
-
+        print "data: " + data
         if len(self.bufin) + len(data) > MAX_BUFSIZE:
             logging.error("Client (%s) buffer exceeds MAX BUFSIZE. %d > %d", 
                 (self, len(self.bufin) + len(data), MAX_BUFSIZE))
@@ -320,7 +320,7 @@ class Server:
         for cipher in CIPHERS:
             if cipher in request['ciphers']:
                 sender.sa_data = cipher
-                msg['ciphers'] = cipher
+                msg['ciphers'] = [cipher]
                 logging.info("Cipherspec agreement reached. Sending information to Client")
                 logging.info("Connect continue to phase " + str(msg['phase']))
                 sender.send(msg)
