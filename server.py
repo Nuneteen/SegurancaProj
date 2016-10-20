@@ -303,10 +303,34 @@ class Server:
 
         msg = {'type': 'connect', 'phase': request['phase'] + 1, 'ciphers': CIPHERS}
 
-        if len(request['ciphers']) > 1 or CIPHERS not in request['ciphers']:
+        if len(request['ciphers']) == 0:
+            logging.info("Client did not provide any list of cipherspec")
             logging.info("Connect continue to phase " + str(msg['phase']))
             sender.send(msg)
             return
+
+        if len(request['ciphers']) == 1:
+            if request['ciphers'][0] not in CIPHERS:
+                logging.info("Cipherspec provided is not supported by the server")
+                logging.info("Connect continue to phase " + str(msg['phase']))
+                sender.send(msg)
+                return
+
+        # client send more than one cipherspec
+        for cipher in CIPHERS:
+            if cipher in request['ciphers']:
+                sender.sa_data = cipher
+                msg['ciphers'] = cipher
+                logging.info("Cipherspec agreement reached. Sending information to Client")
+                logging.info("Connect continue to phase " + str(msg['phase']))
+                sender.send(msg)
+                break
+
+        # if len(request['ciphers']) > 1 or 'NONE' not in request['ciphers']:
+        #     logging.info("Connect continue to phase " + str(msg['phase']))
+        #     sender.send(msg)
+        #     return
+        #
 
         self.id2client[request['id']] = sender
         sender.id = request['id']
