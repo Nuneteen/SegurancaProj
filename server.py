@@ -25,6 +25,9 @@ STATE_NONE = 0
 STATE_CONNECTED = 1
 STATE_DISCONNECTED = 2
 
+# server supported cipher combinations in order of preference
+CIPHERS = ["RSA-PSK-AES128-GCM-SHA256", "DHE-PSK-AES128-CBC-SHA256"]
+
 
 class Client:
     count = 0
@@ -298,10 +301,10 @@ class Server:
             logging.warning("Connect message with missing fields")
             return
 
-        msg = {'type': 'connect', 'phase': request['phase'] + 1, 'ciphers': ['NONE']}
+        msg = {'type': 'connect', 'phase': request['phase'] + 1, 'ciphers': CIPHERS}
 
-        if len(request['ciphers']) > 1 or 'NONE' not in request['ciphers']:
-            logging.info("Connect continue to phase " + msg['phase'])
+        if len(request['ciphers']) > 1 or CIPHERS not in request['ciphers']:
+            logging.info("Connect continue to phase " + str(msg['phase']))
             sender.send(msg)
             return
 
@@ -309,6 +312,7 @@ class Server:
         sender.id = request['id']
         sender.name = request['name']
         sender.state = STATE_CONNECTED
+        sender.sa_data = request['ciphers']
         logging.info("Client %s Connected" % request['id'])
 
     def processList(self, sender, request):
