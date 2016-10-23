@@ -12,6 +12,10 @@ import json
 import sys
 import time
 import logging
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
+import base64
 
 # Server address
 HOST = ""   # All available interfaces
@@ -25,8 +29,11 @@ STATE_NONE = 0
 STATE_CONNECTED = 1
 STATE_DISCONNECTED = 2
 
+#place to store the latest generated key pair.
+KEYS = None
+
 # server supported cipher combinations in order of preference
-CIPHERS = ["RSA-PSK-AES128-GCM-SHA256", "DHE-PSK-AES128-CBC-SHA256"]
+CIPHERS = ["RSA-PSK-AES128-GCM-SHA256", "ECDHE-RSA-AES256-SHA256"]
 
 
 class Client:
@@ -62,7 +69,6 @@ class Client:
         Return any complete requests in a list.
         Leave incomplete requests in the buffer.
         This is called whenever data is available from client socket."""
-        print "data: " + data
         if len(self.bufin) + len(data) > MAX_BUFSIZE:
             logging.error("Client (%s) buffer exceeds MAX BUFSIZE. %d > %d", 
                 (self, len(self.bufin) + len(data), MAX_BUFSIZE))
@@ -70,6 +76,7 @@ class Client:
 
         self.bufin += data
         reqs = self.bufin.split(TERMINATOR)
+        print "REQUESTS: "
         print reqs
         self.bufin = reqs[-1]
         return reqs[:-1]
@@ -309,6 +316,16 @@ class Server:
             sender.send(msg)
             return
 
+        if 'data' in request.keys():
+            self.id2client[request['id']] = sender
+            sender.id = request['id']
+            sender.name = request['name']
+            sender.state = STATE_CONNECTED
+            key = KEYS[0].exchange(ec.ECDH(), request['data']['public_key'])
+            sender.sa_data = {'key': key, 'ciphersecp': request['ciphers'][0]}
+            logging.info("Client %s Connected" % request['id'])
+            return
+
         if len(request['ciphers']) == 1:
             if request['ciphers'][0] not in CIPHERS:
                 logging.info("Cipherspec provided is not supported by the server")
@@ -316,28 +333,31 @@ class Server:
                 sender.send(msg)
                 return
 
-        # client send more than one cipherspec
+        # client send more than one cipher spec
         for cipher in CIPHERS:
             if cipher in request['ciphers']:
-                sender.sa_data = cipher
                 msg['ciphers'] = [cipher]
-                logging.info("Cipherspec agreement reached. Sending information to Client")
+                logging.info("Cipher spec agreement reached.\nGenerating keys.\nSending information to Client")
+                self.generateKeys()
+                #msg['data'] = {'key': base64.b64encode(KEYS[0].)}
                 logging.info("Connect continue to phase " + str(msg['phase']))
                 sender.send(msg)
-                break
+                return
+
+
 
         # if len(request['ciphers']) > 1 or 'NONE' not in request['ciphers']:
         #     logging.info("Connect continue to phase " + str(msg['phase']))
         #     sender.send(msg)
         #     return
         #
-
-        self.id2client[request['id']] = sender
-        sender.id = request['id']
-        sender.name = request['name']
-        sender.state = STATE_CONNECTED
-        sender.sa_data = request['ciphers']
-        logging.info("Client %s Connected" % request['id'])
+        #
+        # self.id2client[request['id']] = sender
+        # sender.id = request['id']
+        # sender.name = request['name']
+        # sender.state = STATE_CONNECTED
+        # sender.sa_data = request['ciphers']
+        # logging.info("Client %s Connected" % request['id'])
 
     def processList(self, sender, request):
         """
@@ -382,6 +402,16 @@ class Server:
 
         dst_message = {'type': 'secure', 'payload': request['payload']}
         dst.send(dst_message)
+
+    def generateKeys(self):
+        """
+        Generate new keys pairs
+        """
+        private_key =  ec.generate_private_key(ec.SECP256R1(), default_backend())
+        public_key = private_key.public_key()
+        global KEYS
+        KEYS = (private_key, public_key)
+
 
 
 if __name__ == "__main__":
