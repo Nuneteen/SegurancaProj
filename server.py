@@ -338,14 +338,14 @@ class Server:
             if cipher in request['ciphers']:
                 msg['ciphers'] = [cipher]
                 logging.info("Cipher spec agreement reached.\nGenerating keys.\nSending information to Client")
-                self.generateKeys()
-                #msg['data'] = {'key': base64.b64encode(KEYS[0].)}
+                self.generateAndSerializeKeys()
+                msg['data'] = {'key': KEYS[1]}
                 logging.info("Connect continue to phase " + str(msg['phase']))
                 sender.send(msg)
                 return
 
 
-
+        #original code
         # if len(request['ciphers']) > 1 or 'NONE' not in request['ciphers']:
         #     logging.info("Connect continue to phase " + str(msg['phase']))
         #     sender.send(msg)
@@ -403,14 +403,16 @@ class Server:
         dst_message = {'type': 'secure', 'payload': request['payload']}
         dst.send(dst_message)
 
-    def generateKeys(self):
+    def generateAndSerializeKeys(self):
         """
         Generate new keys pairs
+        Serialize public key to be sent do client
         """
         private_key =  ec.generate_private_key(ec.SECP256R1(), default_backend())
-        public_key = private_key.public_key()
+        serialized_public_key = private_key.public_key().public_bytes(encoding=serialization.Encoding.PEM,
+                                                                     format=serialization.PublicFormat.SubjectPublicKeyInfo)
         global KEYS
-        KEYS = (private_key, public_key)
+        KEYS = (private_key, serialized_public_key)
 
 
 
