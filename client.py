@@ -86,11 +86,29 @@ class Client:
         except:
             logging.exception("Error send message: %s ", obj)
 
+    def list(self):
+        list = {'type':'list','data':[]}
+        return list
+
+    def clientconnect(self,dst):
+        clientconn = {'type':'client-connect','src': self.id,'dst':dst,'phase':1,'ciphers':CIPHERS,'data':''}
+        return clientconn
+
+    def clientdisconnect(self,dst):
+        clientdisc = {'type': 'client-disconnect', 'src': self.id, 'dst': dst, 'data': ''}
+        return clientdisc
+
+    def clientcom(self,dst,msg):
+        #encrypt(msg)
+        clientcom = {'type':'client-com','src': self.id, 'dst': dst, 'data':msg}
+        return clientcom
+
     def loop(self):
+        msg = {'type': 'connect', 'phase': 1, 'name': self.name, 'id': 1564654564, 'ciphers': CIPHERS}
+        # self.serverConnect(msg)
+        print("SERVER CONNECT!")
+
         while 1:
-            msg = {'type': 'connect', 'phase': 1, 'name': self.name, 'id': 1564654564,  'ciphers': CIPHERS}
-            self.serverConnect(msg)
-            print("SERVER CONNECT!")
             break
 
 
