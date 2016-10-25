@@ -373,8 +373,9 @@ class Server:
             if cipher in request['ciphers']:
                 msg['ciphers'] = [cipher]
                 logging.info("Cipher spec agreement reached.\nGenerating keys.\nSending information to Client")
-                self.generateAndSerializeKeys()
-                msg['data'] = {'key': KEYS[1]}
+                sender.sa_data = CipherHelper(cipher)
+                sender.sa_data.generateKeyPair()
+                msg['data'] = sender.sa_data.serialize()
                 logging.info("Connect continue to phase " + str(msg['phase']))
                 sender.send(msg)
                 return
@@ -437,18 +438,6 @@ class Server:
 
         dst_message = {'type': 'secure', 'payload': request['payload']}
         dst.send(dst_message)
-
-    def generateAndSerializeKeys(self):
-        """
-        Generate new keys pairs
-        Serialize public key to be sent do client
-        """
-        private_key =  ec.generate_private_key(ec.SECP256R1(), default_backend())
-        serialized_public_key = private_key.public_key().public_bytes(encoding=serialization.Encoding.PEM,
-                                                                     format=serialization.PublicFormat.SubjectPublicKeyInfo)
-        global KEYS
-        KEYS = (private_key, serialized_public_key)
-
 
 
 if __name__ == "__main__":
