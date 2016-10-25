@@ -15,7 +15,7 @@ import logging
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
-import base64
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 # Server address
 HOST = ""   # All available interfaces
@@ -34,6 +34,41 @@ KEYS = None
 
 # server supported cipher combinations in order of preference
 CIPHERS = ["RSA-PSK-AES128-GCM-SHA256", "ECDHE-RSA-AES256-SHA256"]
+
+class CipherHelper:
+    def __init__(self, chipherSpec):
+        self.cipherSpec = chipherSpec
+        self.my_private_key = None
+        self.my_public_key = None
+        self.peer_public_key = None
+        self.sharedKey = None
+        self.iv = None
+
+    def generateKeyPair(self):
+        self.my_private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+        self.my_public_key = self.my_private_key.public_key()
+
+    def exchangeSecret(self):
+        self.sharedKey = self.my_private_key.exchange(ec.ECDH(), self.peer_public_key)
+
+    def serialize(self):
+        return self.my_public_key.public_bytes(encoding=serialization.Encoding.PEM,
+                                             format=serialization.PublicFormat.SubjectPublicKeyInfo)
+
+    def deserialize(self, serialized_key):
+        self.peer_public_key = serialization.load_pem_public_key(serialized_key,
+                                                      backend=default_backend())
+
+    def encrypt(self, data):
+        self.iv = os.urandom(16)
+        cipher = Cipher(algorithms.AES(self.sharedKey), modes.CBC(self.iv), default_backend())
+        encryptor = cipher.encryptor()
+        return encryptor.update(data) + encryptor.finalize()
+
+    def decrypt(self, data):
+        cipher = Cipher(algorithms.AES(self.sharedKey), modes.CBC(self.iv), default_backend())
+        decryptor = cipher.decryptor()
+        return decryptor.update(data) + decryptor.finalize()
 
 
 class Client:
