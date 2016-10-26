@@ -1,6 +1,5 @@
 import socket
 import json
-import time
 import logging
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -13,21 +12,23 @@ PORT = 8080         # The same port as used by the server
 
 CLIENT_NAME = "Nuno"
 CIPHERS = []
-STATE_DISCONNECTED = 0
+STATE_NONE = 0
 STATE_CONNECTED = 1
+STATE_DISCONNECTED = 2
 ACK = {'type': 'ack'}
 
 
 BUFSIZE = 512 * 1024
 TERMINATOR = "\n\n"
-MAX_BUFSIZE = 64 *1024
+MAX_BUFSIZE = 64 * 1024
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((HOST, PORT))
 
+
 class CipherHelper:
-    def __init__(self, chipherSpec):
-        self.cipherSpec = chipherSpec
+    def __init__(self, chipherspec):
+        self.cipherSpec = chipherspec
         self.my_private_key = None
         self.my_public_key = None
         self.peer_public_key = None
@@ -64,7 +65,7 @@ class CipherHelper:
 class Peer:
     def __init__(self, id):
         self.id = id
-        self.state = 0
+        self.state = STATE_NONE
         self.sa_data = None
         self.bufferin = None
         self.bufferout = None
@@ -102,10 +103,8 @@ class Client:
         self.level = 0
         self.state = STATE_DISCONNECTED
         self.name = CLIENT_NAME
+        self.peerlist = {}
 
-    # TODO def encapsulateSecure(message)
-    # TODO def addPeer()
-    # TODO def delPeer()
 
     def serverConnect(self, msg):
         while self.state == 0:
@@ -149,6 +148,28 @@ class Client:
                     cipher = raw_input()
                     msg['phase'] = response['phase'] + 1
                     msg['ciphers'] = response['ciphers'][int(cipher)]
+
+    def addPeer(self, id):
+        if id in self.peerlist:
+            logging.error("Peer NOT Added: %s already exists", self.peerlist[id])
+            return
+
+        peer = Peer(id)
+        self.peerlist[peer.id] = peer
+        logging.info("Peer added: %s", peer)
+        return
+
+    def delPeer(self, id):
+        if id not in self.peerlist:
+            logging.error("Peer NOT deleted: %s not found", self.peerlist[id])
+            return
+
+        peer = self.peerlist[id]
+        assert peer.id == id, "peer.id (%s) should match key (%s)" % (peer.id, id)
+        del self.peerlist[peer.socket]
+        peer.state = STATE_DISCONNECTED
+        logging.info("Peer deleted: %s", peer)
+        return
 
     # TODO change this method to Peer class. Similary to Server's implementation
     def send(self, obj):
