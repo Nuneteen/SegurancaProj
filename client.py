@@ -23,8 +23,6 @@ TERMINATOR = "\n\n"
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((HOST, PORT))
 
-# TODO Create Peer class: (id, sa_data, bufferin, bufferout, printBuffer())
-
 class CipherHelper:
     def __init__(self, chipherSpec):
         self.cipherSpec = chipherSpec
@@ -59,6 +57,39 @@ class CipherHelper:
         cipher = Cipher(algorithms.AES(self.sharedKey), modes.CBC(self.iv), default_backend())
         decryptor = cipher.decryptor()
         return decryptor.update(data) + decryptor.finalize()
+
+
+class Peer:
+    def __init__(self, id):
+        self.id = id
+        self.state = 0
+        self.sa_data = None
+        self.bufferin = None
+        self.bufferout = None
+
+    def printbuffer(self,state):
+        if self.state == 1:
+            print self.bufferin
+        else:
+            print "Peer not connected"
+        return
+
+    def parseReqs(self, data):
+        """Parse a chunk of data from this client.
+        Return any complete requests in a list.
+        Leave incomplete requests in the buffer.
+        This is called whenever data is available from client socket."""
+        if len(self.bufin) + len(data) > MAX_BUFSIZE:
+            logging.error("Client (%s) buffer exceeds MAX BUFSIZE. %d > %d",
+                (self, len(self.bufin) + len(data), MAX_BUFSIZE))
+            self.bufin = ""
+
+        self.bufin += data
+        reqs = self.bufin.split(TERMINATOR)
+        print "REQUESTS: "
+        print reqs
+        self.bufin = reqs[-1]
+        return reqs[:-1]
 
 class Client:
 
