@@ -20,6 +20,8 @@ ACK = {'type': 'ack'}
 
 BUFSIZE = 512 * 1024
 TERMINATOR = "\n\n"
+MAX_BUFSIZE = 64 *1024
+
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((HOST, PORT))
 
@@ -155,6 +157,9 @@ class Client:
         except:
             logging.exception("Error send message: %s ", obj)
 
+    def encapsulateSecure(self,message):
+        secure = {'type': 'secure', 'sa-data': 'TODO', 'payload':message}
+        return secure
 
     def list(self):
         list = {'type':'list','data':[]}
