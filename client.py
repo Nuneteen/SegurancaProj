@@ -23,6 +23,8 @@ TERMINATOR = "\n\n"
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((HOST, PORT))
 
+# TODO Create Peer class: (id, sa_data, bufferin, bufferout, printBuffer())
+
 class CipherHelper:
     def __init__(self, chipherSpec):
         self.cipherSpec = chipherSpec
@@ -68,6 +70,10 @@ class Client:
         self.state = STATE_DISCONNECTED
         self.name = CLIENT_NAME
 
+    # TODO def encapsulateSecure(message)
+    # TODO def addPeer()
+    # TODO def delPeer()
+
     def serverConnect(self, msg):
         while self.state == 0:
             try:
@@ -92,6 +98,8 @@ class Client:
                 break
             else:
                 if 'data' in response.keys():
+                    # TODO Change function to the ones implemented in CipherHelper
+                    # TODO Create a CipherHelper to this Peer
                     keys = self.generateKeyPair()
                     self.connections['server']['sa_data']['key'] = self.exchangeKey(keys[0], response['data']['key'])
                     self.connections['server']['sa_data']['cipher'] = response['ciphers'][0]
@@ -109,19 +117,13 @@ class Client:
                     msg['phase'] = response['phase'] + 1
                     msg['ciphers'] = response['ciphers'][int(cipher)]
 
-    def generateKeyPair(self):
-        private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-        public_key = private_key.public_key()
-        return (private_key, public_key)
-
-    def exchangeKey(self, private_key, peer_public_key):
-        return private_key.exchange(ec.ECDH(), peer_public_key)
-
+    # TODO change this method to Peer class. Similary to Server's implementation
     def send(self, obj):
         try:
             s.send(json.dumps(obj) + TERMINATOR)
         except:
             logging.exception("Error send message: %s ", obj)
+
 
     def list(self):
         list = {'type':'list','data':[]}
@@ -140,17 +142,16 @@ class Client:
         clientcom = {'type':'client-com','src': self.id, 'dst': dst, 'data':msg}
         return clientcom
 
+    # TODO create func to parse the keyboard input. In resemblemse to the server's handleRequest. Name: handleKbInput
+
     def loop(self):
+        # TODO finish this method. connect to server, exchange messages
         msg = {'type': 'connect', 'phase': 1, 'name': self.name, 'id': 1564654564, 'ciphers': CIPHERS}
         self.serverConnect(msg)
         print("SERVER CONNECT!")
 
         while 1:
             break
-
-
-    def parseReqs(self, data):
-        return data.split(TERMINATOR)[:-1]
 
 client = Client()
 client.loop()
