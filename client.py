@@ -1,11 +1,8 @@
-import socket
+import socket, select, sys
 import json
+import time
 import logging
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-import os
+import CipherHelper
 
 HOST = '127.0.0.1'  # The remote host
 PORT = 8080         # The same port as used by the server
@@ -13,8 +10,8 @@ PORT = 8080         # The same port as used by the server
 CLIENT_NAME = "Nuno"
 CIPHERS = []
 STATE_NONE = 0
-STATE_CONNECTED = 1
 STATE_DISCONNECTED = 2
+STATE_CONNECTED = 1
 ACK = {'type': 'ack'}
 
 
@@ -25,54 +22,28 @@ MAX_BUFSIZE = 64 * 1024
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((HOST, PORT))
 
-
-class CipherHelper:
-    def __init__(self, chipherspec):
-        self.cipherSpec = chipherspec
+class CipherData:
+    def __init__(self, chipherSpec):
+        self.cipherSpec = chipherSpec
         self.my_private_key = None
         self.my_public_key = None
         self.peer_public_key = None
         self.sharedKey = None
         self.iv = None
 
-    def generateKeyPair(self):
-        self.my_private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-        self.my_public_key = self.my_private_key.public_key()
-
-    def exchangeSecret(self):
-        self.sharedKey = self.my_private_key.exchange(ec.ECDH(), self.peer_public_key)
-
-    def serialize(self):
-        return self.my_public_key.public_bytes(encoding=serialization.Encoding.PEM,
-                                             format=serialization.PublicFormat.SubjectPublicKeyInfo)
-
-    def deserialize(self, serialized_key):
-        self.peer_public_key = serialization.load_pem_public_key(serialized_key,
-                                                      backend=default_backend())
-
-    def encrypt(self, data):
-        self.iv = os.urandom(16)
-        cipher = Cipher(algorithms.AES(self.sharedKey), modes.CBC(self.iv), default_backend())
-        encryptor = cipher.encryptor()
-        return encryptor.update(data) + encryptor.finalize()
-
-    def decrypt(self, data):
-        cipher = Cipher(algorithms.AES(self.sharedKey), modes.CBC(self.iv), default_backend())
-        decryptor = cipher.decryptor()
-        return decryptor.update(data) + decryptor.finalize()
-
-
 class Peer:
     def __init__(self, id):
         self.id = id
         self.state = STATE_NONE
         self.sa_data = None
-        self.bufferin = None
-        self.bufferout = None
+        self.bufin = ""
+        self.bufout = ""
+        self.signature = None
+
 
     def printbuffer(self,state):
         if self.state == 1:
-            print self.bufferin
+            print self.bufin
         else:
             print "Peer not connected"
         return
@@ -98,16 +69,19 @@ class Client:
 
     def __init__(self):
         self.connections = {}
-        self.id = os.urandom(16)
+        self.id = "fgjdkfbgkjdfg"
         self.sa_data = None
         self.level = 0
-        self.state = STATE_DISCONNECTED
+        self.state = STATE_NONE
         self.name = CLIENT_NAME
         self.peerlist = {}
 
+    def serverConnect(self):
+        self.addPeer('server')
+        server = self.peerlist['server']
+        msg = {'type': 'connect', 'phase': 1, 'name': self.name, 'id': self.id, 'ciphers': CIPHERS}
+        while self.state == STATE_NONE:
 
-    def serverConnect(self, msg):
-        while self.state == 0:
             try:
                 print "CONNECT: "
                 print msg
@@ -123,7 +97,7 @@ class Client:
                 break
 
             try:
-                data = self.parseReqs(data)
+                data = server.parseReqs(data)
                 response = json.loads(data[1])
             except:
                 logging.exception("Connect messages received with errors")
@@ -131,13 +105,13 @@ class Client:
             else:
                 if 'data' in response.keys():
                     # TODO Change function to the ones implemented in CipherHelper
-                    # TODO Create a CipherHelper to this Peer
-                    keys = self.generateKeyPair()
-                    self.connections['server']['sa_data']['key'] = self.exchangeKey(keys[0], response['data']['key'])
-                    self.connections['server']['sa_data']['cipher'] = response['ciphers'][0]
+                    server.sa_data = CipherData(response['ciphers'][0])
+                    CipherHelper.generateKeyPair(server)
+                    msg['data'] = {'public_value' : CipherHelper.serializeKey(server)}
+                    msg['data']['cipher'] = server.sa_data.cipherSpec
                     logging.info("Agreed cipher spec: " + response['ciphers'][0])
-                    response['data']['key'] = keys[1]
-                    self.send(response)
+                    self.send(msg)
+                    print msg
                     self.state = STATE_CONNECTED
 
                 else:
@@ -203,12 +177,27 @@ class Client:
 
     def loop(self):
         # TODO finish this method. connect to server, exchange messages
-        msg = {'type': 'connect', 'phase': 1, 'name': self.name, 'id': 1564654564, 'ciphers': CIPHERS}
-        self.serverConnect(msg)
+
+        # initial connection to the server. Nothing more is allowed until connection is established
+        self.serverConnect()
         print("SERVER CONNECT!")
 
         while 1:
-            break
+            print type(s)
+            print type(sys.stdin)
+            socks = select.select([s, sys.stdin, ], [], [])[0]
+            for sock in socks:
+                if sock == s:
+                    # information received from server
+                    data = s.recv(4096)
+                    # TODO decrypt message from server
+                    # TODO handleRequest
+                    print "SERVER DATA"
+                elif sock == sys.stdin:
+                    # Information from keyboard input
+                    data = raw_input()
+                    # TODO handleBkInput
+                    print "KB DATA"
 
 client = Client()
 client.loop()

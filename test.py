@@ -43,5 +43,8 @@ secret = peer_private_key.exchange(ec.ECDH(), loaded_public_key)
 cipher = Cipher(algorithms.AES(secret), modes.CTR(iv), default_backend())
 decryptor = cipher.decryptor()
 ot = decryptor.update(ct) + decryptor.finalize()
-print "cehkfbdksf"
-print ot
+
+
+
+shared3 = my_private_key + shared_key1
+print  shared3
