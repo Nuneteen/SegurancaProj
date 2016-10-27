@@ -3,6 +3,7 @@ import json
 import time
 import logging
 import CipherHelper
+import base64
 
 HOST = '127.0.0.1'  # The remote host
 PORT = 8080         # The same port as used by the server
@@ -104,11 +105,11 @@ class Client:
                 break
             else:
                 if 'data' in response.keys():
-                    # TODO Change function to the ones implemented in CipherHelper
                     server.sa_data = CipherData(response['ciphers'][0])
                     CipherHelper.generateKeyPair(server)
-                    msg['data'] = {'public_value' : CipherHelper.serializeKey(server)}
-                    msg['data']['cipher'] = server.sa_data.cipherSpec
+                    CipherHelper.deserializeKey(server, str(response['data']))
+                    CipherHelper.exchangeSecret(server)
+                    msg['data'] = CipherHelper.serializeKey(server)
                     logging.info("Agreed cipher spec: " + response['ciphers'][0])
                     self.send(msg)
                     print msg
@@ -153,12 +154,13 @@ class Client:
             logging.exception("Error send message: %s ", obj)
 
     def encapsulateSecure(self,message):
-        secure = {'type': 'secure', 'sa-data': 'TODO', 'payload':message}
+        server = self.peerlist['server']
+        secure = {'type': 'secure', 'sa-data': base64.b64encode(server.sa_data.iv), 'payload':message}
         return secure
 
     def list(self):
-        list = {'type':'list','data':[]}
-        return list
+        list = {'type':'list'}
+        return CipherHelper.encrypt(self.peerlist['server'], json.dumps(list))
 
     def clientconnect(self,dst):
         clientconn = {'type':'client-connect','src': self.id,'dst':dst,'phase':1,'ciphers':CIPHERS,'data':''}
@@ -173,6 +175,13 @@ class Client:
         clientcom = {'type':'client-com','src': self.id, 'dst': dst, 'data':msg}
         return clientcom
 
+    def handleInput(self, input):
+        field = input.splitlines()[0]
+        if field == 'list':
+            data = self.encapsulateSecure(self.list())
+            print data
+            self.send(data)
+
     # TODO create func to parse the keyboard input. In resemblemse to the server's handleRequest. Name: handleKbInput
 
     def loop(self):
@@ -183,21 +192,21 @@ class Client:
         print("SERVER CONNECT!")
 
         while 1:
-            print type(s)
-            print type(sys.stdin)
             socks = select.select([s, sys.stdin, ], [], [])[0]
             for sock in socks:
                 if sock == s:
                     # information received from server
                     data = s.recv(4096)
+                    print data
                     # TODO decrypt message from server
-                    # TODO handleRequest
+                    # TODO handleResponse
                     print "SERVER DATA"
                 elif sock == sys.stdin:
                     # Information from keyboard input
-                    data = raw_input()
-                    # TODO handleBkInput
-                    print "KB DATA"
+                    input = raw_input()
+                    if len(input) > 0:
+                        self.handleInput(input)
+                    # TODO handleInput
 
 client = Client()
 client.loop()

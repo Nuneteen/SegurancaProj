@@ -12,10 +12,8 @@ import json
 import sys
 import time
 import logging
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+import CipherHelper
+import base64
 
 # Server address
 HOST = ""   # All available interfaces
@@ -35,7 +33,7 @@ KEYS = None
 # server supported cipher combinations in order of preference
 CIPHERS = ["RSA-PSK-AES128-GCM-SHA256", "ECDHE-RSA-AES256-SHA256"]
 
-class CipherHelper:
+class CipherData:
     def __init__(self, chipherSpec):
         self.cipherSpec = chipherSpec
         self.my_private_key = None
@@ -43,33 +41,6 @@ class CipherHelper:
         self.peer_public_key = None
         self.sharedKey = None
         self.iv = None
-
-    def generateKeyPair(self):
-        self.my_private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-        self.my_public_key = self.my_private_key.public_key()
-
-    def exchangeSecret(self):
-        self.sharedKey = self.my_private_key.exchange(ec.ECDH(), self.peer_public_key)
-
-    def serialize(self):
-        return self.my_public_key.public_bytes(encoding=serialization.Encoding.PEM,
-                                             format=serialization.PublicFormat.SubjectPublicKeyInfo)
-
-    def deserialize(self, serialized_key):
-        self.peer_public_key = serialization.load_pem_public_key(serialized_key,
-                                                      backend=default_backend())
-
-    def encrypt(self, data):
-        self.iv = os.urandom(16)
-        cipher = Cipher(algorithms.AES(self.sharedKey), modes.CBC(self.iv), default_backend())
-        encryptor = cipher.encryptor()
-        return encryptor.update(data) + encryptor.finalize()
-
-    def decrypt(self, data):
-        cipher = Cipher(algorithms.AES(self.sharedKey), modes.CBC(self.iv), default_backend())
-        decryptor = cipher.decryptor()
-        return decryptor.update(data) + decryptor.finalize()
-
 
 class Client:
     count = 0
@@ -356,8 +327,8 @@ class Server:
             sender.id = request['id']
             sender.name = request['name']
             sender.state = STATE_CONNECTED
-            key = KEYS[0].exchange(ec.ECDH(), request['data']['public_key'])
-            sender.sa_data = {'key': key, 'ciphersecp': request['ciphers'][0]}
+            CipherHelper.deserializeKey(sender, str(request['data']))
+            CipherHelper.exchangeSecret(sender)
             logging.info("Client %s Connected" % request['id'])
             return
 
@@ -373,9 +344,9 @@ class Server:
             if cipher in request['ciphers']:
                 msg['ciphers'] = [cipher]
                 logging.info("Cipher spec agreement reached.\nGenerating keys.\nSending information to Client")
-                sender.sa_data = CipherHelper(cipher)
-                sender.sa_data.generateKeyPair()
-                msg['data'] = sender.sa_data.serialize()
+                sender.sa_data = CipherData(cipher)
+                CipherHelper.generateKeyPair(sender)
+                msg['data'] = CipherHelper.serializeKey(sender)
                 logging.info("Connect continue to phase " + str(msg['phase']))
                 sender.send(msg)
                 return
@@ -419,6 +390,9 @@ class Server:
 
         # This is a secure message.
         # TODO: Inner message is encrypted for us. Must decrypt and validate.
+        iv = base64.b64decode(request['sa-data'])
+        payload = CipherHelper.decrypt(sender, request['payload'], iv)
+        request['payload'] = json.loads(payload)
         if 'type' not in request['payload'].keys():
             logging.warning("Secure message without inner frame type")
             return
