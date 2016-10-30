@@ -164,16 +164,15 @@ class Client:
 
     def clientconnect(self,dst):
         clientconn = {'type':'client-connect','src': self.id,'dst':dst,'phase':1,'ciphers':CIPHERS,'data':''}
-        return clientconn
+        return CipherHelper.encrypt(self.peerlist[dst], json.dumps(clientconn))
 
     def clientdisconnect(self,dst):
         clientdisc = {'type': 'client-disconnect', 'src': self.id, 'dst': dst, 'data': ''}
-        return clientdisc
+        return CipherHelper.encrypt(self.peerlist[dst], json.dumps(clientdisc))
 
     def clientcom(self,dst,msg):
-        #encrypt(msg)
         clientcom = {'type':'client-com','src': self.id, 'dst': dst, 'data':msg}
-        return clientcom
+        return CipherHelper.encrypt(self.peerlist[dst], json.dumps(clientcom))
 
     def handleInput(self, input):
         field = input.splitlines()[0]
