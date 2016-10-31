@@ -21,7 +21,6 @@ def deserializeKey(peer, serialized_key):
 
 def encrypt(peer, data):
     peer.sa_data.iv = os.urandom(16)
-    print peer.sa_data.sharedKey
     cipher = Cipher(algorithms.AES(peer.sa_data.sharedKey), modes.CTR(peer.sa_data.iv), default_backend())
     encryptor = cipher.encryptor()
     encData = encryptor.update(data) + encryptor.finalize()
@@ -32,3 +31,15 @@ def decrypt(peer, data, iv):
     cipher = Cipher(algorithms.AES(peer.sa_data.sharedKey), modes.CTR(iv), default_backend())
     decryptor = cipher.decryptor()
     return decryptor.update(data) + decryptor.finalize()
+
+def showPriv(peer):
+    print peer.sa_data.my_private_key.private_bytes(encoding=serialization.Encoding.PEM,
+                                                                format=serialization.PrivateFormat.PKCS8,
+                                                                encryption_algorithm=serialization.BestAvailableEncryption(None)
+                                                                )
+    return
+
+def showPub(peer):
+    print peer.sa_data.my_public_key.public_bytes(encoding=serialization.Encoding.PEM,
+                                                    format=serialization.PublicFormat.SubjectPublicKeyInfo)
+    return

@@ -374,7 +374,9 @@ class Server:
             logging.warning("LIST from disconnected client: %s" % sender)
             return
 
-        sender.send({'type': 'secure', 'payload': {'type': 'list', 'data': self.clientList()}})
+        list = {'type': 'list', 'data': self.clientList()}
+        return sender.send(self.encapsulateSecure(sender, list))
+
 
     def processSecure(self, sender, request):
         """
@@ -390,8 +392,14 @@ class Server:
 
         # This is a secure message.
         # TODO: Inner message is encrypted for us. Must decrypt and validate.
-        iv = base64.b64decode(request['sa-data'])
+
+        # Update peer public key
+        CipherHelper.deserializeKey(sender, str(request['sa-data']['public-key']))
+        CipherHelper.exchangeSecret(sender)
+
+        iv = base64.b64decode(request['sa-data']['iv'])
         payload = CipherHelper.decrypt(sender, request['payload'], iv)
+
         request['payload'] = json.loads(payload)
         if 'type' not in request['payload'].keys():
             logging.warning("Secure message without inner frame type")
@@ -409,9 +417,22 @@ class Server:
             return
 
         dst = self.id2client[request['payload']['dst']]
+        dst_message = self.encapsulateSecure(dst, request['payload'])
 
-        dst_message = {'type': 'secure', 'payload': request['payload']}
         dst.send(dst_message)
+
+    def encapsulateSecure(self,sender, message):
+
+        # generate a new secret for each message sent
+        CipherHelper.generateKeyPair(sender)
+        CipherHelper.exchangeSecret(sender)
+
+        cipherText = CipherHelper.encrypt(sender, message)
+        secure = {'type': 'secure', 'payload':cipherText}
+        secure['sa-data'] = {'iv': base64.b64encode(sender.sa_data.iv),
+                             'public-key' : CipherHelper.serializeKey(sender)}
+
+        return secure
 
 
 if __name__ == "__main__":

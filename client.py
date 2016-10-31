@@ -6,7 +6,7 @@ import CipherHelper
 import base64
 
 HOST = '127.0.0.1'  # The remote host
-PORT = 8080         # The same port as used by the server
+PORT = 8080  # The same port as used by the server
 
 CLIENT_NAME = "Nuno"
 CIPHERS = []
@@ -15,13 +15,13 @@ STATE_DISCONNECTED = 2
 STATE_CONNECTED = 1
 ACK = {'type': 'ack'}
 
-
 BUFSIZE = 512 * 1024
 TERMINATOR = "\n\n"
 MAX_BUFSIZE = 64 * 1024
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((HOST, PORT))
+
 
 class CipherData:
     def __init__(self, chipherSpec):
@@ -32,6 +32,7 @@ class CipherData:
         self.sharedKey = None
         self.iv = None
 
+
 class Peer:
     def __init__(self, id):
         self.id = id
@@ -41,8 +42,7 @@ class Peer:
         self.bufout = ""
         self.signature = None
 
-
-    def printbuffer(self,state):
+    def printbuffer(self, state):
         if self.state == 1:
             print self.bufin
         else:
@@ -56,7 +56,7 @@ class Peer:
         This is called whenever data is available from client socket."""
         if len(self.bufin) + len(data) > MAX_BUFSIZE:
             logging.error("Client (%s) buffer exceeds MAX BUFSIZE. %d > %d",
-                (self, len(self.bufin) + len(data), MAX_BUFSIZE))
+                          (self, len(self.bufin) + len(data), MAX_BUFSIZE))
             self.bufin = ""
 
         self.bufin += data
@@ -66,10 +66,9 @@ class Peer:
         self.bufin = reqs[-1]
         return reqs[:-1]
 
-class Client:
 
+class Client:
     def __init__(self):
-        self.connections = {}
         self.id = "fgjdkfbgkjdfg"
         self.sa_data = None
         self.level = 0
@@ -153,42 +152,140 @@ class Client:
         except:
             logging.exception("Error send message: %s ", obj)
 
-    def encapsulateSecure(self,message):
+    def encapsulateSecure(self, message):
         server = self.peerlist['server']
-        secure = {'type': 'secure', 'sa-data': base64.b64encode(server.sa_data.iv), 'payload':message}
+
+        # generate a new secret for each message sent
+        CipherHelper.generateKeyPair(server)
+        CipherHelper.exchangeSecret(server)
+
+        cipherText = CipherHelper.encrypt(server, message)
+        secure = {'type': 'secure', 'payload': cipherText}
+        secure['sa-data'] = {'iv': base64.b64encode(server.sa_data.iv),
+                             'public-key': CipherHelper.serializeKey(server)}
+
         return secure
 
     def list(self):
-        list = {'type':'list'}
-        return CipherHelper.encrypt(self.peerlist['server'], json.dumps(list))
+        return json.dumps({'type': 'list'})
 
-    def clientconnect(self,dst):
-        clientconn = {'type':'client-connect','src': self.id,'dst':dst,'phase':1,'ciphers':CIPHERS,'data':''}
-        return CipherHelper.encrypt(self.peerlist[dst], json.dumps(clientconn))
+    def clientConnect(self, dst):
+        clientconn = {'type': 'client-connect', 'src': self.id, 'dst': dst, 'phase': 1, 'ciphers': CIPHERS}
+        return json.dumps(clientconn)
 
-    def clientdisconnect(self,dst):
-        clientdisc = {'type': 'client-disconnect', 'src': self.id, 'dst': dst, 'data': ''}
-        return CipherHelper.encrypt(self.peerlist[dst], json.dumps(clientdisc))
+    def clientDisconnect(self, dst):
+        clientdisc = {'type': 'client-disconnect', 'src': self.id, 'dst': dst}
+        return json.dumps(clientdisc)
 
-    def clientcom(self,dst,msg):
-        clientcom = {'type':'client-com','src': self.id, 'dst': dst, 'data':msg}
-        return CipherHelper.encrypt(self.peerlist[dst], json.dumps(clientcom))
+    def clientcom(self, dst, msg):
+        cipherText = CipherHelper.encrypt(dst, msg)
+        clientcom = {'type': 'client-com', 'src': self.id, 'dst': dst, 'data': cipherText}
+        return json.dumps(clientcom)
 
     def handleInput(self, input):
-        field = input.splitlines()[0]
-        if field == 'list':
-            data = self.encapsulateSecure(self.list())
-            print data
-            self.send(data)
+        fields = input.splitlines()
 
-    # TODO create func to parse the keyboard input. In resemblemse to the server's handleRequest. Name: handleKbInput
+        if fields[0] == 'list':
+            data = self.encapsulateSecure(self.list())
+            self.send(data)
+            return
+
+        elif fields[0] == 'client-connect':
+            data = self.encapsulateSecure(self.clientConnect(fields[1]))
+            self.send(data)
+            return
+
+        elif fields[0] == 'client-com':
+            data = self.encapsulateSecure(self.clientcom(fields[1], fields[2:]))
+            self.send(data)
+            return
+
+        elif fields[0] == 'client-disconnect':
+            data = self.encapsulateSecure(self.clientConnect(fields[1]))
+            self.send(data)
+            return
+
+    def handleRequest(self, request):
+        server = self.peerlist['server']
+        try:
+            logging.info("HANDLING message from server: %r", repr(request))
+
+            try:
+                req = json.loads(request)
+            except:
+                return
+
+            if not isinstance(req, dict):
+                return
+
+            if 'type' not in req:
+                return
+
+            if req['type'] == 'ack':
+                return  # Ignore for now
+
+            client.send({'type': 'ack'})
+
+            if req['type'] == 'connect':
+                return
+
+            elif req['type'] == 'secure':
+                self.processSecure(server, req)
+
+        except Exception, e:
+            logging.exception("Could not handle request")
+
+    def processSecure(self, sender, request):
+
+        if sender.state != STATE_CONNECTED:
+            logging.warning("SECURE from disconnected client: %s" % sender)
+            return
+
+        if 'payload' not in request:
+            logging.warning("Secure message with missing fields")
+            return
+
+        # Update peer public key
+        CipherHelper.deserializeKey(sender, str(request['sa-data']['public-key']))
+        CipherHelper.exchangeSecret(sender)
+
+        iv = base64.b64decode(request['sa-data']['iv'])
+        payload = CipherHelper.decrypt(sender, request['payload'], iv)
+
+        try:
+            request['payload'] = json.loads(payload)
+        except:
+            logging.exception("Error send message: %s ", payload)
+        else:
+            if 'type' not in request['payload'].keys():
+                logging.warning("Secure message without inner frame type")
+                return
+
+            if request['payload']['type'] == 'list':
+                for c in request['payload']['data']:
+                    print c
+                return
+
+            if not all(k in request['payload'].keys() for k in ("src", "dst", "type")):
+                return
+
+            if not request['payload']['dst'] in self.peerlist.keys():
+                logging.warning("Message from unknown client: %s" % request['payload']['src'])
+                return
+
+            dst = self.peerlist[request['payload']['dst']]
+
+            if request['payload']['type'] == 'client-com':
+                pass
+            elif request['payload']['type'] == 'client-connect':
+                pass
+            elif request['payload']['type'] == 'client-disconnect':
+                pass
 
     def loop(self):
-        # TODO finish this method. connect to server, exchange messages
-
         # initial connection to the server. Nothing more is allowed until connection is established
         self.serverConnect()
-        print("SERVER CONNECT!")
+        logging.warning("Secure session with the server established")
 
         while 1:
             socks = select.select([s, sys.stdin, ], [], [])[0]
@@ -196,16 +293,13 @@ class Client:
                 if sock == s:
                     # information received from server
                     data = s.recv(4096)
-                    print data
-                    # TODO decrypt message from server
-                    # TODO handleResponse
-                    print "SERVER DATA"
+                    self.handleRequest(data)
                 elif sock == sys.stdin:
                     # Information from keyboard input
                     input = raw_input()
                     if len(input) > 0:
                         self.handleInput(input)
-                    # TODO handleInput
+
 
 client = Client()
 client.loop()
