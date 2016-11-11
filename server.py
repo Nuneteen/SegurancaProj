@@ -31,7 +31,13 @@ STATE_DISCONNECTED = 2
 KEYS = None
 
 # server supported cipher combinations in order of preference
-CIPHERS = ["RSA-PSK-AES128-GCM-SHA256", "ECDHE-RSA-AES256-SHA256"]
+CIPHERS = ["ECDHE-RSA-AES256-CTR-SHA256",
+           "ECDHE-RSA-AES256-OFB-SHA256",
+           "ECDHE-RSA-AES256-CFB8-SHA256",
+           "ECDHE-RSA-AES256-CTR-SHA512",
+           "ECDHE-RSA-AES256-OFB-SHA512",
+           "ECDHE-RSA-AES256-CFB8-SHA512"
+           ]
 
 class CipherData:
     def __init__(self, chipherSpec):
@@ -51,7 +57,7 @@ class Client:
         self.bufout = ""
         self.addr = addr
         self.id = None
-        self.sa_data = None
+        self.cd = None
         self.level = 0
         self.state = STATE_NONE
         self.name = "Unknown"
@@ -62,7 +68,7 @@ class Client:
         return "Client(id=%r addr:%s name:%s level:%d state:%d)" % (self.id, str(self.addr), self.name, self.level, self.state)
 
     def asDict(self):
-        return {'id': self.id, 'level': self.level}
+        return {'id': self.id, 'level': self.level, 'name': self.name}
 
     def setState(self, state):
         if state not in [STATE_CONNECTED, STATE_NONE, STATE_DISCONNECTED]:
@@ -327,29 +333,41 @@ class Server:
             sender.id = request['id']
             sender.name = request['name']
             sender.state = STATE_CONNECTED
-            CipherHelper.deserializeKey(sender, str(request['data']))
-            CipherHelper.exchangeSecret(sender)
+            sender.cd.peer_public_key = CipherHelper.deserializeKey(str(request['data']))
+            sender.cd.sharedKey = CipherHelper.exchangeSecret(sender.cd.my_private_key,
+                                                                   sender.cd.peer_public_key)
             logging.info("Client %s Connected" % request['id'])
             return
 
-        if len(request['ciphers']) == 1:
-            if request['ciphers'][0] not in CIPHERS:
-                logging.info("Cipherspec provided is not supported by the server")
+        # if len(request['ciphers']) == 1:
+        #     print str(request['ciphers'][0])
+        #     if str(request['ciphers'][0]) not in CIPHERS:
+        #         logging.info("Cipherspec provided is not supported by the server")
+        #         logging.info("Connect continue to phase " + str(msg['phase']))
+        #         msg['ciphers'] = []
+        #         sender.send(msg)
+        #         return
+
+        # client send more than one cipher spec
+        for cipher in request['ciphers']:
+            print cipher
+            print type(cipher)
+            str(cipher)
+            print type(cipher)
+            if str(cipher) in CIPHERS:
+                print "123456789"
+                msg['ciphers'] = [cipher]
+                logging.info("Cipher spec agreement reached.\nGenerating keys.\nSending information to Client")
+                sender.cd = CipherData(cipher)
+                sender.cd.my_private_key, sender.cd.my_public_key = CipherHelper.generateKeyPair('ECDHE')
+                msg['data'] = sender.cd.my_public_key
                 logging.info("Connect continue to phase " + str(msg['phase']))
                 sender.send(msg)
                 return
 
-        # client send more than one cipher spec
-        for cipher in CIPHERS:
-            if cipher in request['ciphers']:
-                msg['ciphers'] = [cipher]
-                logging.info("Cipher spec agreement reached.\nGenerating keys.\nSending information to Client")
-                sender.sa_data = CipherData(cipher)
-                CipherHelper.generateKeyPair(sender)
-                msg['data'] = CipherHelper.serializeKey(sender)
-                logging.info("Connect continue to phase " + str(msg['phase']))
-                sender.send(msg)
-                return
+        # No cipherspec supported in both sides
+        msg['ciphers'] = []
+        sender.send(msg)
 
 
         #original code
@@ -373,9 +391,9 @@ class Server:
         if sender.state != STATE_CONNECTED:
             logging.warning("LIST from disconnected client: %s" % sender)
             return
-
         list = {'type': 'list', 'data': self.clientList()}
-        return sender.send(self.encapsulateSecure(sender, list))
+        encapsulatedMessage = self.encapsulateSecure(sender, list)
+        return sender.send(encapsulatedMessage)
 
 
     def processSecure(self, sender, request):
@@ -394,12 +412,18 @@ class Server:
         # TODO: Inner message is encrypted for us. Must decrypt and validate.
 
         # Update peer public key
-        CipherHelper.deserializeKey(sender, str(request['sa-data']['public-key']))
-        CipherHelper.exchangeSecret(sender)
+        sender.cd.peer_public_key = CipherHelper.deserializeKey(str(request['sa-data']['public-key']))
+        sender.cd.sharedKey = CipherHelper.exchangeSecret(sender.cd.my_private_key,
+                                                               sender.cd.peer_public_key)
+
+        # Verify HMAC from secure message
+        rcHMAC = request['sa-data']['hash']
+        if not CipherHelper.checkHMAC(sender, request, rcHMAC):
+            logging.error("Integrity Validation failed on Secure Message")
+            return
 
         iv = base64.b64decode(request['sa-data']['iv'])
         payload = CipherHelper.decrypt(sender, request['payload'], iv)
-
         request['payload'] = json.loads(payload)
         if 'type' not in request['payload'].keys():
             logging.warning("Secure message without inner frame type")
@@ -412,25 +436,29 @@ class Server:
         if not all (k in request['payload'].keys() for k in ("src", "dst")):
             return
 
-        if not request['payload']['dst'] in self.id2client.keys():
+        dstId = int(request['payload']['dst'])
+        if not dstId in self.id2client.keys():
             logging.warning("Message to unknown client: %s" % request['payload']['dst'])
             return
 
-        dst = self.id2client[request['payload']['dst']]
-        dst_message = self.encapsulateSecure(dst, request['payload'])
-
+        dst = self.id2client[dstId]
+        dst_message = self.encapsulateSecure(dst,(request['payload']))
         dst.send(dst_message)
 
     def encapsulateSecure(self,sender, message):
 
         # generate a new secret for each message sent
-        CipherHelper.generateKeyPair(sender)
-        CipherHelper.exchangeSecret(sender)
+        sender.cd.my_private_key, sender.cd.my_public_key = CipherHelper.generateKeyPair('ECDHE')
+        sender.cd.sharedKey = CipherHelper.exchangeSecret(sender.cd.my_private_key,
+                                                               sender.cd.peer_public_key)
 
-        cipherText = CipherHelper.encrypt(sender, message)
+        cipherText, iv = CipherHelper.encrypt(sender, message)
         secure = {'type': 'secure', 'payload':cipherText}
-        secure['sa-data'] = {'iv': base64.b64encode(sender.sa_data.iv),
-                             'public-key' : CipherHelper.serializeKey(sender)}
+        secure['sa-data'] = {'iv': iv,
+                             'public-key' : sender.cd.my_public_key}
+
+        hmac = CipherHelper.generateHMAC(sender, secure)
+        secure['sa-data']['hash'] = hmac
 
         return secure
 
